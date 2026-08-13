@@ -14,7 +14,7 @@ TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN", "")
 TG_CHAT_ID = os.getenv("TG_CHAT_ID", "")
 
 LOGIN_URL = "https://cloud.puratya.com/login"
-WEB_PANEL_URL = "https://cloud.puratya.com/web"
+WEB_PANEL_URL = "https://cloud.puratya.com/"
 # =================================================
 
 def send_tg_message(text):
