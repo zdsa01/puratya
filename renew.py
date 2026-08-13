@@ -4,13 +4,11 @@ import time
 from playwright.sync_api import sync_playwright
 
 # ==================== 配置区域 ====================
-# 支持从环境变量读取（推荐 GitHub Secrets），若没有则使用下方硬编码
-USERNAME = os.getenv("PURATYA_USER", "你的账号或邮箱")
-PASSWORD = os.getenv("PURATYA_PASS", "你的密码")
+# 这里现在需要填写的是你的 Discord 账号和密码
+USERNAME = os.getenv("PURATYA_USER", "你的Discord账号/邮箱")
+PASSWORD = os.getenv("PURATYA_PASS", "你的Discord密码")
 
-# 网址配置
 BASE_URL = "https://cloud.puratya.com"
-LOGIN_URL = "https://cloud.puratya.com/login"  # 若登录页即首页，可改填 https://cloud.puratya.com
 WEB_PANEL_URL = "https://cloud.puratya.com/web"
 # =================================================
 
@@ -28,107 +26,68 @@ def run():
         page = context.new_page()
 
         try:
-            print(f"🌐 正在访问登录页面: {LOGIN_URL}")
-            page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=40000)
+            print(f"🌐 正在访问主页面: {BASE_URL}")
+            page.goto(BASE_URL, wait_until="domcontentloaded", timeout=40000)
             time.sleep(3)
 
-            print(f"📍 当前页面 URL: {page.url}")
-            print(f"📄 当前页面标题: {page.title()}")
-
-            # 多选择器兼容方案：按顺序查找账号输入框
-            username_selectors = [
-                'input[type="email"]',
-                'input[type="text"]',
-                'input[name="email"]',
-                'input[name="username"]',
-                'input[name="user"]',
-                'input[placeholder*="邮"]',
-                'input[placeholder*="用"]',
-                'input[placeholder*="账号"]',
-                'input[placeholder*="Email"]',
-                'input'  # 若均无则尝试页面第一个输入框
+            # 1. 寻找并点击 "Log in with Discord" 按钮
+            print("🔍 正在查找 Discord 登录入口...")
+            login_entry_selectors = [
+                'text="Log in with Discord"',
+                'a[href*="discord.com/oauth2"]',
+                'button:has-text("Discord")'
             ]
-
-            user_input = None
-            for selector in username_selectors:
+            
+            clicked_discord = False
+            for sel in login_entry_selectors:
                 try:
-                    loc = page.locator(selector).first
-                    if loc.is_visible(timeout=2000):
-                        user_input = loc
-                        print(f"✅ 找到账号输入框: {selector}")
-                        break
-                except Exception:
-                    continue
-
-            if not user_input:
-                print("❌ 未能在页面上找到任何账号输入框！")
-                print("📋 页面文本预览：\n", page.inner_text("body")[:500])
-                page.screenshot(path="login_error.png")
-                sys.exit(1)
-
-            user_input.fill(USERNAME)
-
-            # 查找密码输入框
-            password_selectors = [
-                'input[type="password"]',
-                'input[name="password"]',
-                'input[placeholder*="密"]',
-                'input[placeholder*="Password"]'
-            ]
-            pass_input = None
-            for selector in password_selectors:
-                try:
-                    loc = page.locator(selector).first
-                    if loc.is_visible(timeout=2000):
-                        pass_input = loc
-                        print(f"✅ 找到密码输入框: {selector}")
-                        break
-                except Exception:
-                    continue
-
-            if not pass_input:
-                print("❌ 未找到密码输入框！")
-                page.screenshot(path="password_error.png")
-                sys.exit(1)
-
-            pass_input.fill(PASSWORD)
-
-            # 点击登录按钮
-            login_buttons = [
-                'button[type="submit"]',
-                'button:has-text("登录")',
-                'button:has-text("Login")',
-                'input[type="submit"]',
-                '.btn-primary'
-            ]
-            clicked = False
-            for btn_sel in login_buttons:
-                try:
-                    btn = page.locator(btn_sel).first
-                    if btn.is_visible(timeout=1500):
+                    btn = page.locator(sel).first
+                    if btn.is_visible(timeout=3000):
                         btn.click()
-                        print(f"👆 点击登录按钮: {btn_sel}")
-                        clicked = True
+                        print(f"👆 已点击 Discord 登录按钮: {sel}")
+                        clicked_discord = True
                         break
                 except Exception:
                     continue
+            
+            if not clicked_discord:
+                print("❌ 未能在页面上找到 Discord 登录入口！")
+                page.screenshot(path="no_discord_btn.png")
+                sys.exit(1)
 
-            if not clicked:
-                pass_input.press("Enter")
-                print("👆 在密码框按回车提交登录")
+            # 2. 等待跳转至 Discord 登录页面
+            print("⏳ 等待跳转至 Discord 登录页面...")
+            page.wait_for_url("**/discord.com/**", timeout=30000)
+            time.sleep(3)
+            print(f"📍 当前 URL: {page.url}")
 
-            # 等待登录响应并跳转
-            print("⏳ 等待登录认证完成...")
+            # 3. 在 Discord 页面输入账号密码
+            print("⌨️ 正在输入 Discord 凭据...")
+            page.locator('input[name="email"]').fill(USERNAME)
+            page.locator('input[name="password"]').fill(PASSWORD)
+            page.locator('button[type="submit"]').click()
+
+            # 4. 等待 Discord 登录完成及授权
+            print("⏳ 等待 Discord 认证及可能的授权跳转...")
+            time.sleep(8)
+            
+            # 处理可能出现的 Discord "授权 (Authorize)" 按钮
+            try:
+                auth_btn = page.locator('button:has-text("Authorize"), button:has-text("授权")').first
+                if auth_btn.is_visible(timeout=5000):
+                    auth_btn.click()
+                    print("👆 点击了 Discord 授权按钮")
+                    time.sleep(5)
+            except Exception:
+                pass # 如果没有授权按钮则忽略
+
+            # 5. 等待跳回 Puratya Web 控制台
+            print(f"🔄 等待导航回 Web 控制台: {WEB_PANEL_URL}")
+            page.wait_for_url("**/cloud.puratya.com/web**", timeout=40000)
             time.sleep(5)
 
-            # 明确跳转至 Web 管理控制台
-            print(f"🔄 导航至 Web 控制台: {WEB_PANEL_URL}")
-            page.goto(WEB_PANEL_URL, wait_until="domcontentloaded", timeout=30000)
-            time.sleep(5)
-
-            print(f"📍 当前控制台 URL: {page.url}")
-
-            # 匹配并点击“续期”按钮
+            # 6. 执行续期操作
+            print("🔍 正在查找“续期”按钮...")
             renew_selectors = [
                 'button:has-text("续期")',
                 'button:has-text("↺ 续期")',
@@ -157,9 +116,8 @@ def run():
             if renew_found:
                 print("🌟 自动续期任务执行完毕！")
             else:
-                print("⚠️ 未能在页面匹配到“续期”按钮，正在截取面板视图...")
+                print("⚠️ 未匹配到“续期”按钮，正在截取面板视图...")
                 page.screenshot(path="dashboard_state.png")
-                print("📋 控制台页面文本：\n", page.inner_text("body")[:600])
 
         except Exception as e:
             print(f"💥 运行遭遇异常: {e}")
@@ -167,7 +125,7 @@ def run():
                 page.screenshot(path="fatal_error.png")
             except Exception:
                 pass
-            raise e
+            sys.exit(1)
         finally:
             browser.close()
 
