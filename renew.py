@@ -1,231 +1,58 @@
-import os
-import requests
-import datetime
+from playwright.sync_api import sync_playwright
+import time
 
+# ================= 配置区域 =================
+LOGIN_URL = "https://cloud.puratya.com/login" # 假设的登录页面，请根据实际情况修改
+DASHBOARD_URL = "https://cloud.puratya.com/web" # 登录后的面板页面
+USERNAME = "your_email@example.com"
+PASSWORD = "your_password"
+# ============================================
 
-# ==================================
-# Puratya 配置
-# ==================================
-
-BASE_URL = "https://cloud.puratya.com"
-
-
-# Bot列表
-BOTS = [
-    {
-        "id": "自己修改",
-        "name": "自己修改"
-    }
-
-    # 添加更多 Bot:
-    #
-    # {
-    #     "id": "自己修改",
-    #     "name": "自己修改"
-    # }
-]
-
-
-# ==================================
-# GitHub Secrets
-# ==================================
-
-PURATYA_TOKEN = os.getenv("PURATYA_TOKEN")
-
-TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN")
-
-TG_CHAT_ID = os.getenv("TG_CHAT_ID")
-
-
-# ==================================
-# 请求配置
-# ==================================
-
-headers = {
-    "User-Agent": "Mozilla/5.0",
-    "Accept": "*/*",
-    "Origin": BASE_URL
-}
-
-
-cookies = {
-    "__Host-mrtcloud_token": PURATYA_TOKEN
-}
-
-
-reports = []
-
-
-# ==================================
-# Telegram 推送
-# ==================================
-
-def send_telegram(message):
-
-    if not TG_BOT_TOKEN or not TG_CHAT_ID:
-        print("Telegram 未配置")
-        return
-
-
-    url = (
-        f"https://api.telegram.org/"
-        f"bot{TG_BOT_TOKEN}/sendMessage"
-    )
-
-
-    data = {
-        "chat_id": TG_CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": True
-    }
-
-
-    try:
-
-        r = requests.post(
-            url,
-            data=data,
-            timeout=10
+def auto_renew_via_browser():
+    print("启动无头浏览器...")
+    with sync_playwright() as p:
+        # 启动浏览器 (headless=True 表示不显示界面在后台运行)
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
         )
+        page = context.new_page()
 
-        print(
-            "Telegram:",
-            r.status_code
-        )
+        try:
+            # 1. 访问登录页
+            print("正在访问登录页面...")
+            page.goto(LOGIN_URL, timeout=30000)
+            
+            # 2. 执行登录操作 (需根据实际网页的元素定位修改选择器)
+            # 以下选择器为示例，请按F12审查元素获取真实的 input name 或 id
+            page.fill('input[type="email"]', USERNAME)
+            page.fill('input[type="password"]', PASSWORD)
+            page.click('button[type="submit"]')
+            
+            print("登录请求已发送，等待页面跳转...")
+            # 3. 等待面板加载完成 (等待出现 image_7beadb.png 中的特征元素)
+            page.wait_for_url("**/web*", timeout=20000)
+            time.sleep(5) # 额外等待动态数据(如SLEEP IN 倒计时)渲染完毕
+            
+            # 4. 定位并点击“续期”按钮
+            # 这里的匹配文本 "续期" 必须与面板上的文字完全一致
+            renew_button = page.locator('button:has-text("续期")')
+            
+            if renew_button.count() > 0:
+                # 遍历所有找到的续期按钮（以防有多个服务）并点击
+                for i in range(renew_button.count()):
+                    print(f"正在点击第 {i+1} 个续期按钮...")
+                    renew_button.nth(i).click()
+                    time.sleep(3) # 点击后的缓冲时间
+                print("✅ 续期操作执行完毕。")
+            else:
+                print("❌ 未在页面上找到包含“续期”文本的按钮，请检查选择器或页面语言。")
 
-
-    except Exception as e:
-
-        print(
-            "TG发送失败:",
-            e
-        )
-
-
-# ==================================
-# Puratya续期
-# ==================================
-
-def renew(bot):
-
-    bot_id = bot["id"]
-
-    name = bot["name"]
-
-
-    url = (
-        f"{BASE_URL}/api/bots/"
-        f"{bot_id}/renew"
-    )
-
-
-    print(
-        f"正在续期 {name} ({bot_id})"
-    )
-
-
-    try:
-
-        response = requests.post(
-            url,
-            headers=headers,
-            cookies=cookies,
-            timeout=20
-        )
-
-
-        if response.status_code != 200:
-
-            raise Exception(
-                f"HTTP {response.status_code}"
-            )
-
-
-        data = response.json()
-
-
-        timer = data.get(
-            "timer",
-            {}
-        )
-
-
-        seconds = timer.get(
-            "remaining_seconds",
-            0
-        )
-
-
-        hours = seconds // 3600
-
-
-        stop_at = timer.get(
-            "stop_at",
-            "-"
-        )
-
-
-        if stop_at != "-":
-
-            stop_at = (
-                stop_at
-                .replace("T", " ")
-                [:16]
-            )
-
-
-        reports.append(
-            f"✅ **{name}续期成功**\n"
-            f"🆔 Bot: `{bot_id}`\n"
-            f"⏰ 剩余: **{hours}小时**\n"
-            f"📅 到期: {stop_at}"
-        )
-
-
-    except Exception as e:
-
-
-        reports.append(
-            f"❌ **{name}续期失败**\n"
-            f"🆔 Bot: `{bot_id}`\n"
-            f"⚠️ 错误: `{e}`"
-        )
-
-
-# ==================================
-# 主程序
-# ==================================
+        except Exception as e:
+            print(f"⚠️ 执行过程中出现错误: {e}")
+            
+        finally:
+            browser.close()
 
 if __name__ == "__main__":
-
-
-    print(
-        "====== Puratya Auto Renew ======"
-    )
-
-
-    for bot in BOTS:
-
-        renew(bot)
-
-
-
-    now = datetime.datetime.utcnow()
-
-
-    message = (
-        "🤖 **Puratya续期通知**\n"
-        + "\n".join(reports)
-        + f"\n🕒 签到时间：{now.strftime('%Y-%m-%d %H:%M')} UTC"
-    )
-
-
-    print(
-        message
-    )
-
-
-    send_telegram(
-        message
-    )
+    auto_renew_via_browser()
