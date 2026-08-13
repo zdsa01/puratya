@@ -1,39 +1,37 @@
-name: Puratya Cloud Auto Renew
+name: Puratya Auto Renew
 
 on:
   schedule:
-    # 每 2 天运行一次，防止 167 小时倒计时到期
-    - cron: '0 0 */2 * *'
-  workflow_dispatch: # 支持网页手动点击运行
+    - cron: '0 0 * * *'  # 每天定时运行
+  workflow_dispatch:      # 支持手动触发
 
 jobs:
   renew:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repository
+      - name: 检出仓库代码
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: 设置 Python 环境
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install Dependencies and Chromium
+      - name: 安装 Python 依赖库
         run: |
           python -m pip install --upgrade pip
-          pip install playwright
+          pip install playwright requests
+
+      - name: 安装 Playwright 浏览器及其系统依赖
+        run: |
           playwright install chromium --with-deps
 
-      - name: Run Renewal Script
+      - name: 执行续期脚本
         env:
           PURATYA_USER: ${{ secrets.PURATYA_USER }}
           PURATYA_PASS: ${{ secrets.PURATYA_PASS }}
-        run: python renew.py
-
-      - name: Upload Debug Screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-screenshots
-          path: '*.png'
-          if-no-files-found: ignore
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          python renew.py
