@@ -1,0 +1,92 @@
+name: Puratya Auto Renew
+
+
+on:
+
+  # 定时执行
+  schedule:
+
+    # UTC 01:00
+    # 北京时间 09:00
+
+    - cron: "0 1 * * *"
+
+
+  # 手动执行
+
+  workflow_dispatch:
+
+
+
+jobs:
+
+
+  renew:
+
+
+    runs-on:
+      ubuntu-latest
+
+
+
+    steps:
+
+
+      - name:
+          Checkout
+
+        uses:
+          actions/checkout@v4
+
+
+
+      - name:
+          Setup Python
+
+        uses:
+          actions/setup-python@v5
+
+        with:
+
+          python-version:
+            "3.11"
+
+
+
+      - name:
+          Install dependency
+
+        run:
+
+          pip install -r requirements.txt
+
+
+
+      - name:
+          Run Puratya Renew
+
+
+        env:
+
+
+          PURATYA_TOKEN:
+
+            ${{ secrets.PURATYA_TOKEN }}
+
+
+          TG_BOT_TOKEN:
+
+            ${{ secrets.TG_BOT_TOKEN }}
+
+
+          TG_CHAT_ID:
+
+            ${{ secrets.TG_CHAT_ID }}
+
+
+
+        run:
+
+          python renew.py
+
+     
