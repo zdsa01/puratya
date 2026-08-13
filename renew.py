@@ -5,12 +5,13 @@ import requests
 from playwright.sync_api import sync_playwright
 
 # ==================== 配置区域 ====================
-USERNAME = os.getenv("PURATYA_USER", "你的Discord账号/邮箱")
-PASSWORD = os.getenv("PURATYA_PASS", "你的Discord密码")
+# 这些变量将由 GitHub Actions 从 Secrets 中注入
+USERNAME = os.getenv("PURATYA_USER", "")
+PASSWORD = os.getenv("PURATYA_PASS", "")
 
 # Telegram Bot 配置
-TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN", "你的TG_BOT_TOKEN")
-TG_CHAT_ID = os.getenv("TG_CHAT_ID", "你的TG_CHAT_ID")
+TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN", "")
+TG_CHAT_ID = os.getenv("TG_CHAT_ID", "")
 
 LOGIN_URL = "https://cloud.puratya.com/login"
 WEB_PANEL_URL = "https://cloud.puratya.com/web"
@@ -19,6 +20,7 @@ WEB_PANEL_URL = "https://cloud.puratya.com/web"
 def send_tg_message(text):
     """发送 TG 文本消息"""
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
+        print("⚠️ 未配置 TG Token 或 Chat ID，跳过发送文本消息。")
         return
     url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TG_CHAT_ID, "text": text}
@@ -30,6 +32,7 @@ def send_tg_message(text):
 def send_tg_photo(photo_path, caption=""):
     """发送 TG 图片消息"""
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
+        print("⚠️ 未配置 TG Token 或 Chat ID，跳过发送图片消息。")
         return
     url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendPhoto"
     try:
@@ -45,11 +48,13 @@ def run():
     send_tg_message("🚀 Puratya 自动续期任务已启动...")
     
     with sync_playwright() as p:
+        # 启动 Chromium 浏览器
         browser = p.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-blink-features=AutomationControlled"]
         )
         
+        # 强制指定英文环境，防止页面渲染为日文导致文本选择器失效
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             viewport={"width": 1280, "height": 800},
@@ -58,9 +63,11 @@ def run():
         page = context.new_page()
 
         try:
+            # 1. 访问登录主页
             print(f"🌐 正在访问登录页面: {LOGIN_URL}")
             page.goto(LOGIN_URL, wait_until="networkidle", timeout=40000)
 
+            # 2. 查找并点击 Discord 登录入口
             print("🔍 正在查找 Discord 登录入口...")
             selectors = [
                 'a[href*="discord"]',
@@ -88,20 +95,20 @@ def run():
                 send_tg_photo("no_discord_btn.png", error_msg)
                 sys.exit(1)
 
-            # 等待跳转至 Discord
+            # 3. 授权跳转与输入账号密码
             print("⏳ 正在等待跳转至 Discord 授权页面...")
             page.wait_for_url("**/discord.com/**", timeout=30000)
             time.sleep(3)
 
-            # 输入账号密码
             print("⌨️ 正在注入 Discord 凭据...")
             page.locator('input[name="email"]').fill(USERNAME)
             page.locator('input[name="password"]').fill(PASSWORD)
             page.locator('button[type="submit"]').click()
 
-            print("⏳ 等待 Discord 认证及授权跳转...")
+            print("⏳ 等待 Discord 认证及授权跳转 (如果在此卡住，说明可能触发了验证)...")
             time.sleep(10)
             
+            # 尝试点击授权按钮（部分账号可能不需要这一步）
             try:
                 auth_btn = page.locator('button:has-text("Authorize"), button:has-text("授权")').first
                 if auth_btn.is_visible(timeout=5000):
@@ -111,17 +118,18 @@ def run():
             except Exception:
                 print("ℹ️ 未检测到授权按钮，可能已自动授权。")
 
-            # 强制导航至 Web 续期面板，防止停留在其他主页
-            print(f"🔄 导航至控制台 Web 面板: {WEB_PANEL_URL}")
+            # 4. 强制导航至 Web 面板
+            print(f"🔄 强制导航至控制台 Web 面板: {WEB_PANEL_URL}")
             page.goto(WEB_PANEL_URL, wait_until="networkidle", timeout=40000)
-            time.sleep(5) 
+            time.sleep(8) # 给予足够的面板加载时间
             
-            # 截图：续期前状态
+            # 截图记录续期前的状态
             page.screenshot(path="before_renew.png")
             send_tg_photo("before_renew.png", "📊 当前 Web 面板状态（续期前）")
 
-            # 执行续期操作 (基于截图 image_7a85c3.png，按钮文本为 "↻ 续期")
+            # 5. 执行续期操作
             print("🔍 正在查找控制台上的“续期”按钮...")
+            # 使用多重匹配策略，确保能抓到截图中的“续期”
             renew_selectors = [
                 'button:has-text("续期")',
                 'button:has-text("Renew")'
@@ -132,7 +140,7 @@ def run():
                 renew_buttons = page.locator(r_sel)
                 count = renew_buttons.count()
                 if count > 0:
-                    print(f"🎉 成功找到 {count} 个“续期”按钮，准备执行点击...")
+                    print(f"🎉 成功找到 {count} 个“续期”按钮，准备依次点击...")
                     for i in range(count):
                         try:
                             btn = renew_buttons.nth(i)
@@ -140,16 +148,16 @@ def run():
                                 btn.click()
                                 print(f"✅ 第 {i+1} 个服务续期点击完成！")
                                 renew_count += 1
-                                time.sleep(4) # 等待 API 请求完成
+                                time.sleep(4) # 等待后端 API 处理
                         except Exception as e:
                             print(f"⚠️ 点击第 {i+1} 个按钮时出现异常: {e}")
-                    break # 找到一种选择器并执行后跳出循环
+                    break 
 
+            # 6. 反馈结果
             if renew_count > 0:
                 success_msg = f"🌟 本次自动化续期任务圆满执行完毕！共续期 {renew_count} 个服务。"
                 print(success_msg)
-                
-                # 截图：续期后状态
+                # 重新刷新页面或者直接截图最终状态
                 page.screenshot(path="after_renew.png")
                 send_tg_photo("after_renew.png", success_msg)
             else:
@@ -171,4 +179,8 @@ def run():
             browser.close()
 
 if __name__ == "__main__":
+    # 基础依赖检查
+    if not USERNAME or not PASSWORD:
+        print("❌ 错误: 环境变量 PURATYA_USER 或 PURATYA_PASS 未设置！")
+        sys.exit(1)
     run()
